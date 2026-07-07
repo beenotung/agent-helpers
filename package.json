@@ -27,6 +27,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "openai": "^6.45.0",
     "populate-env": "^2.6.1"
   }
 }
