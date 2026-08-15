@@ -57,7 +57,7 @@ let tools: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_date',
-      description: 'Get the current date',
+      description: 'Get the current date, without the time part',
       parameters: {
         type: 'object',
         properties: {
@@ -73,7 +73,7 @@ let tools: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_time',
-      description: 'Get the current time',
+      description: 'Get the current time, without the date part',
       parameters: {
         type: 'object',
         properties: {
