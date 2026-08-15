@@ -282,49 +282,54 @@ async function testStream() {
 
   let messages: ChatCompletionMessageParam[] = [{ role: 'user', content }]
 
-  let response = await streamAndCollect(messages, tools)
+  for (;;) {
+    let response = await streamAndCollect(messages, tools)
 
-  console.log('tool_calls:', response.tool_calls)
-  if (response.tool_calls.length > 0) {
-    messages.push({
-      role: 'assistant',
-      tool_calls: response.tool_calls
-        .map(tool_call => {
-          if (tool_call.type !== 'function') {
-            return null
-          }
-          return {
-            id: tool_call.id,
-            type: 'function' as const,
-            function: {
-              name: tool_call.function.name,
-              arguments: tool_call.function.arguments,
-            },
-          }
-        })
-        .filter(tool_call => tool_call !== null),
-    })
-    for (let tool_call of response.tool_calls) {
-      let content: string
-      try {
-        content = await callTool(tool_call)
-      } catch (error) {
-        content = String(error)
-        if (!content.includes('error') && !content.includes('Error')) {
-          content = 'Error: ' + content
-        }
-      }
+    console.log('tool_calls:', response.tool_calls)
+    if (response.tool_calls.length > 0) {
       messages.push({
-        role: 'tool',
-        tool_call_id: tool_call.id,
-        content,
+        role: 'assistant',
+        tool_calls: response.tool_calls
+          .map(tool_call => {
+            if (tool_call.type !== 'function') {
+              return null
+            }
+            return {
+              id: tool_call.id,
+              type: 'function' as const,
+              function: {
+                name: tool_call.function.name,
+                arguments: tool_call.function.arguments,
+              },
+            }
+          })
+          .filter(tool_call => tool_call !== null),
       })
-      console.log('result:', messages[messages.length - 1])
+      for (let tool_call of response.tool_calls) {
+        let content: string
+        try {
+          content = await callTool(tool_call)
+        } catch (error) {
+          content = String(error)
+          if (!content.includes('error') && !content.includes('Error')) {
+            content = 'Error: ' + content
+          }
+        }
+        // pass the tool call result to LLM
+        messages.push({
+          role: 'tool',
+          tool_call_id: tool_call.id,
+          content,
+        })
+        console.log('result:', messages[messages.length - 1])
+      }
+      response = await streamAndCollect(messages, tools)
+      continue
     }
-    response = await streamAndCollect(messages, tools)
-  }
 
-  // TODO pass the tool call result to LLM
+    console.log('response:', response)
+    break
+  }
 }
 
 async function main() {
