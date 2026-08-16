@@ -1,13 +1,54 @@
-import {
-  ChatCompletionMessageParam,
-  ChatCompletionTool,
-} from 'openai/resources/chat/completions/index'
-import { complete, stream, StreamChunk } from './llm'
+import { ChatCompletionMessageParam } from 'openai/resources/chat/completions/index'
+import { createClient, StreamChunk } from './client'
+import { ToolCall } from './tool'
+import { env } from './env'
+
+let client = createClient({
+  baseURL: env.PROVIDER_URL,
+  apiKey: env.API_KEY,
+  defaultModel: env.MODEL_NAME,
+})
+
+client.addFunction({
+  name: 'get_date',
+  description: 'Get the current date, without the time part',
+  parameters: {
+    type: 'object',
+    properties: {
+      reasoning: {
+        type: 'string',
+        description: 'The reasoning for getting the date',
+      },
+    },
+  },
+  callback: async (args: unknown) => {
+    return new Date().toDateString()
+  },
+})
+
+client.addFunction({
+  name: 'get_time',
+  description: 'Get the current time, without the date part',
+  parameters: {
+    type: 'object',
+    properties: {
+      reasoning: {
+        type: 'string',
+        description: 'The reasoning for getting the time',
+      },
+    },
+  },
+  callback: async (args: unknown) => {
+    return new Date().toTimeString()
+  },
+})
 
 async function testComplete() {
   let content = 'hi'
   content = 'what is the current date and time?'
-  const response = await complete([{ role: 'user', content }], tools)
+  const response = await client.complete({
+    messages: [{ role: 'user', content }],
+  })
   if (response.choices[0].message.role) {
     console.log('[role]')
     console.log(response.choices[0].message.role)
@@ -52,58 +93,10 @@ async function testComplete() {
   // console.log('--------------------------------')
 }
 
-let tools: ChatCompletionTool[] = [
-  {
-    type: 'function',
-    function: {
-      name: 'get_date',
-      description: 'Get the current date, without the time part',
-      parameters: {
-        type: 'object',
-        properties: {
-          reasoning: {
-            type: 'string',
-            description: 'The reasoning for getting the date',
-          },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_time',
-      description: 'Get the current time, without the date part',
-      parameters: {
-        type: 'object',
-        properties: {
-          reasoning: {
-            type: 'string',
-            description: 'The reasoning for getting the time',
-          },
-        },
-      },
-    },
-  },
-]
-
-type ToolCall = {
-  index: number
-  id: string
-  type: 'function' | string
-  function: {
-    name: string
-    arguments: string
-  }
-}
-
 const noop = () => {}
 
-async function streamAndCollect(
-  messages: ChatCompletionMessageParam[],
-  tools?: ChatCompletionTool[],
-) {
-  const streamGenerator = stream(messages, tools)
+async function streamAndCollect(messages: ChatCompletionMessageParam[]) {
+  const streamGenerator = client.stream({ messages })
   let id: string | undefined = undefined
   let tool_calls: ToolCall[] = []
   let last_tool_call_mode: 'idle' | 'name' | 'arguments' = 'idle'
@@ -263,27 +256,17 @@ async function streamAndCollect(
   }
 }
 
-async function callTool(tool_call: ToolCall): Promise<string> {
-  switch (tool_call.function.name) {
-    case 'get_date':
-      return new Date().toDateString()
-    case 'get_time':
-      return new Date().toTimeString()
-    default:
-      throw new Error(`unknown function: ${tool_call.function.name}`)
-  }
-}
-
 async function testStream() {
   let content = 'hi'
   content = 'What is the syntax of tool calls?'
   content =
     'what is the current date and time? Response in format of "YYYY-MM-DD HH:MM:SS" without extra text'
+  // content = `what is the date and time? Result in this format: `
 
   let messages: ChatCompletionMessageParam[] = [{ role: 'user', content }]
 
   for (;;) {
-    let response = await streamAndCollect(messages, tools)
+    let response = await streamAndCollect(messages)
 
     console.log('tool_calls:', response.tool_calls)
     if (response.tool_calls.length > 0) {
@@ -306,24 +289,12 @@ async function testStream() {
           .filter(tool_call => tool_call !== null),
       })
       for (let tool_call of response.tool_calls) {
-        let content: string
-        try {
-          content = await callTool(tool_call)
-        } catch (error) {
-          content = String(error)
-          if (!content.includes('error') && !content.includes('Error')) {
-            content = 'Error: ' + content
-          }
-        }
+        let message = await client.tools.callTool(tool_call)
         // pass the tool call result to LLM
-        messages.push({
-          role: 'tool',
-          tool_call_id: tool_call.id,
-          content,
-        })
-        console.log('result:', messages[messages.length - 1])
+        messages.push(message)
+        console.log('result:', message)
       }
-      response = await streamAndCollect(messages, tools)
+      response = await streamAndCollect(messages)
       continue
     }
 
