@@ -3,6 +3,7 @@ import { env } from './env'
 import {
   ChatCompletion,
   ChatCompletionChunk,
+  ChatCompletionCreateParamsBase,
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from 'openai/resources/chat/completions'
@@ -26,6 +27,11 @@ export function createClient(args: {
   })
 }
 
+export type ChatCompletionCreateArgs = Omit<
+  ChatCompletionCreateParamsBase,
+  'stream' | 'model'
+> & { model?: string }
+
 export class Client {
   client: OpenAI
   defaultModel: string
@@ -45,37 +51,33 @@ export class Client {
     this.tools.addFunction(args)
   }
 
-  async complete(args: {
-    messages: ChatCompletionMessageParam[]
-    model?: string
-    tools?: ChatCompletionTool[]
-    tool_choice?: ChatCompletionToolChoiceOption
-    parallel_tool_calls?: boolean
-  }): Promise<CompleteResponse> {
-    const response = await this.client.chat.completions.create({
+  private createCompletionArgs(
+    args: ChatCompletionCreateArgs,
+  ): ChatCompletionCreateParamsBase {
+    return {
+      ...args,
       model: args.model || this.defaultModel,
-      messages: args.messages,
       tools: args.tools || this.tools.tools,
       tool_choice: args.tool_choice || 'auto',
       parallel_tool_calls: args.parallel_tool_calls ?? true,
-    })
+    }
+  }
+
+  /** @description wait until entire response is generated */
+  async complete(args: ChatCompletionCreateArgs): Promise<CompleteResponse> {
+    const response = await this.client.chat.completions.create(
+      this.createCompletionArgs(args),
+    )
     return response as CompleteResponse
   }
 
-  async *stream(args: {
-    messages: ChatCompletionMessageParam[]
-    model?: string
-    tools?: ChatCompletionTool[]
-    tool_choice?: ChatCompletionToolChoiceOption
-    parallel_tool_calls?: boolean
-  }): AsyncGenerator<StreamChunk> {
+  /** @description stream the response as it is generated */
+  async *completeStream(
+    args: ChatCompletionCreateArgs,
+  ): AsyncGenerator<StreamChunk> {
     const stream = await this.client.chat.completions.create({
-      model: args.model || this.defaultModel,
-      messages: args.messages,
+      ...this.createCompletionArgs(args),
       stream: true,
-      tool_choice: args.tool_choice || 'auto',
-      tools: args.tools || this.tools.tools,
-      parallel_tool_calls: args.parallel_tool_calls ?? true,
     })
     for await (const chunk of stream) {
       yield chunk as StreamChunk
