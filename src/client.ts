@@ -1,49 +1,83 @@
 import { OpenAI } from 'openai'
-import { env } from './env'
 import {
   ChatCompletion,
   ChatCompletionChunk,
   ChatCompletionCreateParamsBase,
   ChatCompletionMessageParam,
-  ChatCompletionTool,
 } from 'openai/resources/chat/completions'
-import { AddFunctionArgs, ToolRegistry } from './tool'
-import { Tool } from 'openai/resources/responses/responses.js'
-import { ChatCompletionToolChoiceOption } from 'openai/resources'
+import { AddFunctionArgs, ToolCall, ToolCallResult, ToolRegistry } from './tool'
+import { ChatCompletionToolMessageParam } from 'openai/resources'
+import { ChatCompletionMessage } from 'openai/resources'
 
 export function createClient(args: {
-  baseURL: string
-  apiKey: string
-  defaultModel: string
+  base_url: string
+  api_key: string
+  default_model: string
   tools?: ToolRegistry
 }) {
   return new Client({
     client: new OpenAI({
-      baseURL: args.baseURL,
-      apiKey: args.apiKey,
+      baseURL: args.base_url,
+      apiKey: args.api_key,
     }),
-    defaultModel: args.defaultModel,
+    default_model: args.default_model,
     tools: args.tools,
   })
 }
 
-export type ChatCompletionCreateArgs = Omit<
+export type CompletionCreateArgs = Omit<
   ChatCompletionCreateParamsBase,
   'stream' | 'model'
 > & { model?: string }
 
+export type CompletionLoopContext<MessageType = ChatCompletionMessage> = {
+  create_args: CompletionCreateArgs
+  /** accumulated responses in the loop */
+  responses: CompletionResponse[]
+  /** currently received response */
+  response: CompletionResponse
+  /** accumulated new messages in the loop (from model response and tool call result) */
+  new_messages: ChatMessage[]
+  /** currently received message (from model response) */
+  new_message: MessageType
+}
+
+export type ChatMessage =
+  /** received from the model */
+  | CompletionMessage
+  /** send to the model */
+  | ToolCallResult
+
+export type ToolCallGuard = {
+  guardToolCall: (
+    args: CompletionLoopContext & { tool_call: ToolCall },
+  ) => boolean | Promise<boolean>
+}
+
+export function alwaysAllow() {
+  return true
+}
+
+export type CompleteWithToolsResult = {
+  responses: CompletionResponse[]
+  messages: CompletionMessage[]
+  last_response: CompletionResponse
+  last_message: CompletionMessage
+  finish_reason: ChatCompletion['choices'][number]['finish_reason']
+}
+
 export class Client {
   client: OpenAI
-  defaultModel: string
+  default_model: string
   tools: ToolRegistry
 
   constructor(args: {
     client: OpenAI
-    defaultModel: string
+    default_model: string
     tools?: ToolRegistry
   }) {
     this.client = args.client
-    this.defaultModel = args.defaultModel
+    this.default_model = args.default_model
     this.tools = args.tools ?? new ToolRegistry()
   }
 
@@ -52,11 +86,11 @@ export class Client {
   }
 
   private createCompletionArgs(
-    args: ChatCompletionCreateArgs,
+    args: CompletionCreateArgs,
   ): ChatCompletionCreateParamsBase {
     return {
       ...args,
-      model: args.model || this.defaultModel,
+      model: args.model || this.default_model,
       tools: args.tools || this.tools.tools,
       tool_choice: args.tool_choice || 'auto',
       parallel_tool_calls: args.parallel_tool_calls ?? true,
@@ -64,16 +98,135 @@ export class Client {
   }
 
   /** @description wait until entire response is generated */
-  async complete(args: ChatCompletionCreateArgs): Promise<CompleteResponse> {
+  async complete(args: CompletionCreateArgs): Promise<CompletionResponse> {
     const response = await this.client.chat.completions.create(
       this.createCompletionArgs(args),
     )
-    return response as CompleteResponse
+    return response as CompletionResponse
+  }
+
+  /**
+   * @description guard and call the tool, also push the result to `context.newMessages`
+   */
+  private async callTool(
+    args: CompletionLoopContext & {
+      tool_call: ToolCall
+    } & ToolCallGuard,
+  ): Promise<ChatCompletionToolMessageParam> {
+    let { guardToolCall, ...rest } = args
+    let allowToolCall = await guardToolCall(rest)
+    if (!allowToolCall) {
+      let error = new Error(`tool call not allowed`)
+      throw Object.assign(error, { details: args })
+    }
+    let result = await this.tools.callTool(args.tool_call)
+    args.new_messages.push(result)
+    return result
+  }
+
+  /**
+   * @description loop until all tool calls are completed.
+   *
+   * Remark: only handling the first choice of the response message at the moment.
+   */
+  async completeWithTools(
+    create_args: CompletionCreateArgs &
+      ToolCallGuard & {
+        onResponse?: (
+          args: CompletionLoopContext<ChatCompletionMessage | undefined>,
+        ) => void | Promise<void>
+        onToolCallResult?: (
+          args: CompletionLoopContext & {
+            tool_call: ToolCall
+            tool_call_result: ChatCompletionToolMessageParam
+          },
+        ) => void | Promise<void>
+      },
+  ): Promise<CompleteWithToolsResult> {
+    let { guardToolCall, onResponse, onToolCallResult } = create_args
+
+    let new_responses: CompletionResponse[] = []
+    let new_messages: CompletionMessage[] = []
+
+    for (;;) {
+      let new_response = await this.complete({
+        ...create_args,
+        messages: [...create_args.messages, ...new_messages],
+      })
+      new_responses.push(new_response)
+
+      let choice = new_response.choices[0]
+      if (!choice) {
+        throw new Error('no choice in the response')
+      }
+
+      let new_message = choice.message
+      new_messages.push(new_message)
+
+      let context: CompletionLoopContext = {
+        create_args,
+        responses: new_responses,
+        response: new_response,
+        new_messages: new_messages,
+        new_message: new_message,
+      }
+
+      if (onResponse) {
+        await onResponse(context)
+      }
+
+      switch (choice.finish_reason) {
+        case 'length':
+          throw new Error('response too long')
+        case 'content_filter':
+          throw new Error('response blocked/filtered by provider')
+        case 'stop':
+        case 'tool_calls':
+        case 'function_call':
+          break
+        default: {
+          let reason = choice.finish_reason satisfies never
+          throw new Error(`unknown finish reason: ${reason}`)
+        }
+      }
+
+      if (!new_message.tool_calls?.length) {
+        break
+      }
+
+      for (let index = 0; index < new_message.tool_calls.length; index++) {
+        let toolCall = Object.assign(new_message.tool_calls[index], { index })
+        let toolCallResult = await this.callTool({
+          ...context,
+          tool_call: toolCall,
+          guardToolCall,
+        })
+        if (onToolCallResult) {
+          await onToolCallResult({
+            ...context,
+            tool_call: toolCall,
+            tool_call_result: toolCallResult,
+          })
+        }
+      }
+    }
+
+    let last_response = new_responses[new_responses.length - 1]
+    let last_message = last_response.choices[0]?.message
+    let finish_reason = last_response.choices[0]?.finish_reason
+
+    return {
+      responses: new_responses,
+      messages: new_messages,
+      finish_reason,
+      last_response,
+      last_message,
+    }
   }
 
   /** @description stream the response as it is generated */
   async *completeStream(
-    args: ChatCompletionCreateArgs,
+    args: CompletionCreateArgs,
   ): AsyncGenerator<StreamChunk> {
     const stream = await this.client.chat.completions.create({
       ...this.createCompletionArgs(args),
@@ -85,7 +238,7 @@ export class Client {
   }
 }
 
-export type CompleteResponse = ChatCompletion & {
+export type CompletionResponse = ChatCompletion & {
   choices: Array<
     ChatCompletion['choices'][number] & {
       message: ChatCompletionMessageParam & {
@@ -94,6 +247,10 @@ export type CompleteResponse = ChatCompletion & {
     }
   >
 }
+
+export type CompletionChoice = CompletionResponse['choices'][number]
+
+export type CompletionMessage = CompletionChoice['message']
 
 export type StreamChunk = ChatCompletionChunk & {
   choices: Array<

@@ -1,4 +1,5 @@
 import {
+  ChatCompletionMessageToolCall,
   ChatCompletionTool,
   ChatCompletionFunctionTool,
   ChatCompletionToolMessageParam,
@@ -14,6 +15,12 @@ export type AddFunctionArgs<T> = {
   parameters: ChatCompletionFunctionTool['function']['parameters']
   callback: (args: T) => Promise<string>
 }
+
+export type ToolCall = ChatCompletionMessageToolCall & {
+  index: number
+}
+
+export type ToolCallResult = ChatCompletionToolMessageParam
 
 export class ToolRegistry {
   tools: ChatCompletionTool[] = []
@@ -37,7 +44,7 @@ export class ToolRegistry {
   }
 
   /** @description will never throw error. Already wrapped in try-catch. */
-  async callTool(tool: ToolCall): Promise<ChatCompletionToolMessageParam> {
+  async callTool(tool: ToolCall): Promise<ToolCallResult> {
     let content: string
     try {
       content = await this.runToolCall(tool)
@@ -63,15 +70,5 @@ export class ToolRegistry {
       throw new Error(`callback function not registered: ${tool.function.name}`)
     }
     return await func.callback(tool.function.arguments)
-  }
-}
-
-export type ToolCall = {
-  index: number
-  id: string
-  type: 'function' | string
-  function: {
-    name: string
-    arguments: string
   }
 }
