@@ -1,5 +1,5 @@
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions/index'
-import { createClient, StreamChunk } from './client'
+import { Client, createClient, StreamChunk } from './client'
 import { ToolCall } from './tool'
 import { env } from './env'
 
@@ -46,57 +46,87 @@ client.addFunction({
 async function testComplete() {
   let content = 'hi'
   content = 'what is the current date and time?'
-  const response = await client.complete({
-    messages: [{ role: 'user', content }],
-  })
-  if (response.choices[0].message.role) {
-    console.log('[role]')
-    console.log(response.choices[0].message.role)
-    console.log('--------------------------------')
-  }
-  if (response.choices[0].message.content) {
-    console.log('[content]')
-    console.log(response.choices[0].message.content)
-    console.log('--------------------------------')
-  }
-  if (response.choices[0].message.reasoning_content) {
-    console.log('[reasoning]')
-    console.log(response.choices[0].message.reasoning_content)
-    console.log('--------------------------------')
-  }
-  if (response.choices[0].message.tool_calls) {
-    for (const toolCall of response.choices[0].message.tool_calls) {
-      console.log('[tool_call]')
-      console.log(toolCall)
+  content =
+    'what is the current date and time? Response in format of "YYYY-MM-DD HH:MM:SS" without extra text'
+
+  console.log('[prompt]')
+  console.log(content)
+  console.log('--------------------------------')
+
+  let messages: ChatCompletionMessageParam[] = [{ role: 'user', content }]
+
+  for (;;) {
+    let response = await client.complete({ messages })
+
+    if (response.choices[0].message.role) {
+      console.log('[role]')
+      console.log(response.choices[0].message.role)
       console.log('--------------------------------')
     }
-  }
-  if (response.choices[0].message.annotations) {
-    for (const annotation of response.choices[0].message.annotations) {
-      console.log('[annotation]')
-      console.log(annotation)
+    if (response.choices[0].message.content) {
+      console.log('[content]')
+      console.log(response.choices[0].message.content)
       console.log('--------------------------------')
     }
+    if (response.choices[0].message.reasoning_content) {
+      console.log('[reasoning]')
+      console.log(response.choices[0].message.reasoning_content)
+      console.log('--------------------------------')
+    }
+    if (response.choices[0].message.tool_calls) {
+      let index = -1
+      for (const toolCall of response.choices[0].message.tool_calls) {
+        index++
+        console.log('[tool_call]')
+        console.log(toolCall)
+        console.log('--------------------------------')
+        if (toolCall.type !== 'function') {
+          throw new Error(`unknown tool call type: ${toolCall.type}`)
+        }
+        let message = await client.tools.callTool(
+          Object.assign(toolCall, { index }),
+        )
+        console.log('[tool_call_result]')
+        console.log(message)
+        console.log('--------------------------------')
+        messages.push(message)
+      }
+    }
+    if (response.choices[0].message.annotations) {
+      for (const annotation of response.choices[0].message.annotations) {
+        console.log('[annotation]')
+        console.log(annotation)
+        console.log('--------------------------------')
+      }
+    }
+    if (response.choices[0].message.audio) {
+      console.log('[audio]')
+      console.log(response.choices[0].message.audio)
+      console.log('--------------------------------')
+    }
+    if (response.choices[0].message.refusal) {
+      console.log('[refusal]')
+      console.log(response.choices[0].message.refusal)
+      console.log('--------------------------------')
+    }
+    // console.log('[response]')
+    // console.log(JSON.stringify(response, null, 2))
+    // console.log('--------------------------------')
+
+    if (!response.choices[0].message.tool_calls?.length) {
+      break
+    }
   }
-  if (response.choices[0].message.audio) {
-    console.log('[audio]')
-    console.log(response.choices[0].message.audio)
-    console.log('--------------------------------')
-  }
-  if (response.choices[0].message.refusal) {
-    console.log('[refusal]')
-    console.log(response.choices[0].message.refusal)
-    console.log('--------------------------------')
-  }
-  // console.log('[response]')
-  // console.log(JSON.stringify(response, null, 2))
-  // console.log('--------------------------------')
 }
 
 const noop = () => {}
 
-async function streamAndCollect(messages: ChatCompletionMessageParam[]) {
-  const streamGenerator = client.stream({ messages })
+async function streamAndCollect(args: {
+  client: Client
+  messages: ChatCompletionMessageParam[]
+}) {
+  let { client, messages } = args
+  const streamGenerator = client.completeStream({ messages })
   let id: string | undefined = undefined
   let tool_calls: ToolCall[] = []
   let last_tool_call_mode: 'idle' | 'name' | 'arguments' = 'idle'
@@ -266,7 +296,7 @@ async function testStream() {
   let messages: ChatCompletionMessageParam[] = [{ role: 'user', content }]
 
   for (;;) {
-    let response = await streamAndCollect(messages)
+    let response = await streamAndCollect({ client, messages })
 
     console.log('tool_calls:', response.tool_calls)
     if (response.tool_calls.length > 0) {
@@ -294,7 +324,7 @@ async function testStream() {
         messages.push(message)
         console.log('result:', message)
       }
-      response = await streamAndCollect(messages)
+      response = await streamAndCollect({ client, messages })
       continue
     }
 
