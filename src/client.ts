@@ -43,14 +43,16 @@ export type ToolCallGuard = {
 export type CompletionLoopEventListeners = {
   onResponse?: (
     args: CompletionLoopContext<ChatCompletionMessage | undefined>,
-  ) => void | Promise<void>
+  ) => EventListenerResult
   onToolCallResult?: (
     args: CompletionLoopContext & {
       tool_call: ToolCall
       tool_call_result: ChatCompletionToolMessageParam
     },
-  ) => void | Promise<void>
+  ) => EventListenerResult
 }
+
+export type EventListenerResult = void | Promise<void>
 
 export type CompletionLoopContext<MessageType = ChatCompletionMessage> = {
   create_args: CompleteArgs
