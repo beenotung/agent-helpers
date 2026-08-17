@@ -121,6 +121,17 @@ export class Client {
     return response as CompletionResponse
   }
 
+  /** @description stream the response as it is generated */
+  async *completeStream(args: CompleteArgs): AsyncGenerator<StreamChunk> {
+    const stream = await this.client.chat.completions.create({
+      ...this.createCompletionArgs(args),
+      stream: true,
+    })
+    for await (const chunk of stream) {
+      yield chunk as StreamChunk
+    }
+  }
+
   /**
    * @description guard and call the tool, also push the result to `context.newMessages`
    */
@@ -226,17 +237,6 @@ export class Client {
       finish_reason,
       last_response,
       last_message,
-    }
-  }
-
-  /** @description stream the response as it is generated */
-  async *completeStream(args: CompleteArgs): AsyncGenerator<StreamChunk> {
-    const stream = await this.client.chat.completions.create({
-      ...this.createCompletionArgs(args),
-      stream: true,
-    })
-    for await (const chunk of stream) {
-      yield chunk as StreamChunk
     }
   }
 }
