@@ -44,6 +44,7 @@ export type CompletionLoopEventListeners = {
   onResponse?: (
     args: CompletionLoopContext<ChatCompletionMessage | undefined>,
   ) => EventListenerResult
+  onMessage?: (args: CompletionLoopContext) => EventListenerResult
   onToolCallResult?: (
     args: CompletionLoopContext & {
       tool_call: ToolCall
@@ -161,7 +162,7 @@ export class Client {
   async completeWithTools(
     create_args: CompleteWithToolsArgs,
   ): Promise<CompleteWithToolsResult> {
-    let { guardToolCall, onResponse, onToolCallResult } = create_args
+    let { guardToolCall, onResponse, onMessage, onToolCallResult } = create_args
 
     let new_responses: CompletionResponse[] = []
     let new_messages: CompletionMessage[] = []
@@ -206,6 +207,10 @@ export class Client {
           let reason = choice.finish_reason satisfies never
           throw new Error(`unknown finish reason: ${reason}`)
         }
+      }
+
+      if (onMessage) {
+        await onMessage(context)
       }
 
       if (!new_message.tool_calls?.length) {
