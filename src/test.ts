@@ -49,9 +49,14 @@ async function testComplete() {
   content =
     'what is the current date and time? Response in format of "YYYY-MM-DD HH:MM:SS" without extra text'
 
-  console.log('[prompt]')
-  console.log(content)
-  console.log('--------------------------------')
+  function log(label: string, message: any) {
+    console.log(`[${label}]`)
+    console.log(message)
+    console.log(`[/${label}]`)
+    console.log('--------------------------------')
+  }
+
+  log('prompt', content)
 
   let messages: ChatCompletionMessageParam[] = [{ role: 'user', content }]
 
@@ -62,60 +67,42 @@ async function testComplete() {
       let response = newResponse
 
       if (response.choices[0].message.role) {
-        console.log('[role]')
-        console.log(response.choices[0].message.role)
-        console.log('--------------------------------')
+        log('role', response.choices[0].message.role)
       }
       if (response.choices[0].message.content) {
-        console.log('[content]')
-        console.log(response.choices[0].message.content)
-        console.log('--------------------------------')
+        log('content', response.choices[0].message.content)
       }
       if (response.choices[0].message.reasoning_content) {
-        console.log('[reasoning]')
-        console.log(response.choices[0].message.reasoning_content)
-        console.log('--------------------------------')
+        log('reasoning', response.choices[0].message.reasoning_content)
       }
       if (response.choices[0].message.tool_calls) {
         let index = -1
         for (const toolCall of response.choices[0].message.tool_calls) {
           index++
-          console.log(`[tool_call:${index}]`)
-          console.log(toolCall)
-          console.log('--------------------------------')
+          log(`tool_call:${index}`, toolCall)
         }
       }
       if (response.choices[0].message.annotations) {
         for (const annotation of response.choices[0].message.annotations) {
-          console.log('[annotation]')
-          console.log(annotation)
-          console.log('--------------------------------')
+          log('annotation', annotation)
         }
       }
       if (response.choices[0].message.audio) {
-        console.log('[audio]')
-        console.log(response.choices[0].message.audio)
-        console.log('--------------------------------')
+        log('audio', response.choices[0].message.audio)
       }
       if (response.choices[0].message.refusal) {
-        console.log('[refusal]')
-        console.log(response.choices[0].message.refusal)
-        console.log('--------------------------------')
+        log('refusal', response.choices[0].message.refusal)
       }
     },
     onToolCallResult({
       tool_call: toolCall,
       tool_call_result: toolCallResult,
     }) {
-      console.log('[tool_call_result]')
-      console.log(toolCallResult)
-      console.log('--------------------------------')
+      log('tool_call_result', toolCallResult)
     },
   })
 
-  console.log('[result]')
-  console.log(result.last_message)
-  console.log('--------------------------------')
+  log('result', result.last_message)
 }
 
 const noop = () => {}
