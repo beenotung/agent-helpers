@@ -25,13 +25,35 @@ export function createClient(args: {
   })
 }
 
-export type CompletionCreateArgs = Omit<
+export type CompleteArgs = Omit<
   ChatCompletionCreateParamsBase,
   'stream' | 'model'
 > & { model?: string }
 
+export type CompleteWithToolsArgs = CompleteArgs &
+  ToolCallGuard &
+  CompletionLoopEventListeners
+
+export type ToolCallGuard = {
+  guardToolCall: (
+    args: CompletionLoopContext & { tool_call: ToolCall },
+  ) => boolean | Promise<boolean>
+}
+
+export type CompletionLoopEventListeners = {
+  onResponse?: (
+    args: CompletionLoopContext<ChatCompletionMessage | undefined>,
+  ) => void | Promise<void>
+  onToolCallResult?: (
+    args: CompletionLoopContext & {
+      tool_call: ToolCall
+      tool_call_result: ChatCompletionToolMessageParam
+    },
+  ) => void | Promise<void>
+}
+
 export type CompletionLoopContext<MessageType = ChatCompletionMessage> = {
-  create_args: CompletionCreateArgs
+  create_args: CompleteArgs
   /** accumulated responses in the loop */
   responses: CompletionResponse[]
   /** currently received response */
@@ -47,12 +69,6 @@ export type ChatMessage =
   | CompletionMessage
   /** send to the model */
   | ToolCallResult
-
-export type ToolCallGuard = {
-  guardToolCall: (
-    args: CompletionLoopContext & { tool_call: ToolCall },
-  ) => boolean | Promise<boolean>
-}
 
 export function alwaysAllow() {
   return true
@@ -86,7 +102,7 @@ export class Client {
   }
 
   private createCompletionArgs(
-    args: CompletionCreateArgs,
+    args: CompleteArgs,
   ): ChatCompletionCreateParamsBase {
     return {
       ...args,
@@ -98,7 +114,7 @@ export class Client {
   }
 
   /** @description wait until entire response is generated */
-  async complete(args: CompletionCreateArgs): Promise<CompletionResponse> {
+  async complete(args: CompleteArgs): Promise<CompletionResponse> {
     const response = await this.client.chat.completions.create(
       this.createCompletionArgs(args),
     )
@@ -130,18 +146,7 @@ export class Client {
    * Remark: only handling the first choice of the response message at the moment.
    */
   async completeWithTools(
-    create_args: CompletionCreateArgs &
-      ToolCallGuard & {
-        onResponse?: (
-          args: CompletionLoopContext<ChatCompletionMessage | undefined>,
-        ) => void | Promise<void>
-        onToolCallResult?: (
-          args: CompletionLoopContext & {
-            tool_call: ToolCall
-            tool_call_result: ChatCompletionToolMessageParam
-          },
-        ) => void | Promise<void>
-      },
+    create_args: CompleteWithToolsArgs,
   ): Promise<CompleteWithToolsResult> {
     let { guardToolCall, onResponse, onToolCallResult } = create_args
 
@@ -225,9 +230,7 @@ export class Client {
   }
 
   /** @description stream the response as it is generated */
-  async *completeStream(
-    args: CompletionCreateArgs,
-  ): AsyncGenerator<StreamChunk> {
+  async *completeStream(args: CompleteArgs): AsyncGenerator<StreamChunk> {
     const stream = await this.client.chat.completions.create({
       ...this.createCompletionArgs(args),
       stream: true,
