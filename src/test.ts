@@ -69,11 +69,11 @@ async function testComplete() {
       if (response.choices[0].message.role) {
         log('role', response.choices[0].message.role)
       }
-      if (response.choices[0].message.content) {
-        log('content', response.choices[0].message.content)
-      }
       if (response.choices[0].message.reasoning_content) {
         log('reasoning', response.choices[0].message.reasoning_content)
+      }
+      if (response.choices[0].message.content) {
+        log('content', response.choices[0].message.content)
       }
       if (response.choices[0].message.tool_calls) {
         let index = -1
