@@ -37,8 +37,12 @@ export type CompleteWithToolsArgs = CompleteArgs &
 export type ToolCallGuard = {
   guardToolCall: (
     args: CompletionLoopContext & { tool_call: ToolCall },
-  ) => boolean | Promise<boolean>
+  ) => Result<true | RejectReason>
 }
+
+export type RejectReason = string
+
+export type Result<T> = T | Promise<T>
 
 export type CompletionLoopEventListeners = {
   onResponse?: (
@@ -136,7 +140,8 @@ export class Client {
   }
 
   /**
-   * @description guard and call the tool, also push the result to `context.newMessages`
+   * @description guard and call the tool, also push the result to `context.newMessages`.
+   * - never throw error, return error message instead.
    */
   private async callTool(
     args: CompletionLoopContext & {
@@ -144,12 +149,17 @@ export class Client {
     } & ToolCallGuard,
   ): Promise<ChatCompletionToolMessageParam> {
     let { guardToolCall, ...rest } = args
-    let allowToolCall = await guardToolCall(rest)
-    if (!allowToolCall) {
-      let error = new Error(`tool call not allowed`)
-      throw Object.assign(error, { details: args })
+    let guardResult = await guardToolCall(rest)
+    let result: ChatCompletionToolMessageParam
+    if (guardResult === true) {
+      result = await this.tools.callTool(args.tool_call)
+    } else {
+      result = {
+        role: 'tool',
+        tool_call_id: args.tool_call.id,
+        content: 'Error: tool call not allowed. Reason: ' + guardResult,
+      }
     }
-    let result = await this.tools.callTool(args.tool_call)
     args.new_messages.push(result)
     return result
   }
