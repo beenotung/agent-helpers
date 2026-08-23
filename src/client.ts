@@ -128,15 +128,13 @@ export class Client {
     return response as CompletionResponse
   }
 
-  /** @description stream the response as it is generated */
-  async *completeStream(args: CompleteArgs): AsyncGenerator<StreamChunk> {
+  /** @description create a stream of response chunks as it is generated */
+  async stream(args: CompleteArgs): Promise<Stream<StreamChunk>> {
     const stream = await this.client.chat.completions.create({
       ...this.createCompletionArgs(args),
       stream: true,
     })
-    for await (const chunk of stream) {
-      yield chunk as StreamChunk
-    }
+    return stream as Stream<StreamChunk>
   }
 
   /**

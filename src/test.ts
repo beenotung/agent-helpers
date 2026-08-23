@@ -112,7 +112,8 @@ async function streamAndCollect(args: {
   messages: ChatCompletionMessageParam[]
 }) {
   let { client, messages } = args
-  const streamGenerator = client.completeStream({ messages })
+  let stream = await client.stream({ messages })
+
   let id: string | undefined = undefined
   let tool_calls: (ToolCall & { type: 'function' })[] = []
   let last_tool_call_mode: 'idle' | 'name' | 'arguments' = 'idle'
@@ -124,7 +125,7 @@ async function streamAndCollect(args: {
   let i = 0
   let last_mode = ''
   let flush = noop
-  for await (const chunk of streamGenerator) {
+  for await (const chunk of stream) {
     i++
     // console.log(`[chunk ${i}]`)
     // console.log(JSON.stringify(chunk, null, 2))
