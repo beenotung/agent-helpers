@@ -117,7 +117,7 @@ export class Client {
       tools: args.tools || this.tools.tools,
       tool_choice: args.tool_choice || 'auto',
       parallel_tool_calls: args.parallel_tool_calls ?? true,
-    }
+    } satisfies ChatCompletionCreateParamsBase
   }
 
   /** @description wait until entire response is generated */
@@ -130,10 +130,9 @@ export class Client {
 
   /** @description create a stream of response chunks as it is generated */
   async stream(args: CompleteArgs): Promise<Stream<StreamChunk>> {
-    const stream = await this.client.chat.completions.create({
-      ...this.createCompletionArgs(args),
-      stream: true,
-    })
+    let params: ChatCompletionCreateParamsBase = this.createCompletionArgs(args)
+    params.stream = true
+    const stream = await this.client.chat.completions.create(params)
     return stream as Stream<StreamChunk>
   }
 
