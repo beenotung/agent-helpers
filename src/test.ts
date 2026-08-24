@@ -1,7 +1,15 @@
 import { ChatCompletionMessageParam } from 'openai/resources/chat/completions/index'
-import { alwaysAllow, Client, createClient, StreamChunk } from './client'
+import {
+  alwaysAllow,
+  ChatMessage,
+  Client,
+  CompletionResponse,
+  createClient,
+  StreamChunk,
+} from './client'
 import { ToolCall } from './tool'
 import { env } from './env'
+import { mkdirSync, writeFileSync } from 'fs'
 
 let client = createClient({
   base_url: env.PROVIDER_URL,
@@ -63,42 +71,44 @@ async function testComplete() {
   let result = await client.completeWithTools({
     messages,
     guardToolCall: alwaysAllow,
-    onResponse({ response: newResponse }) {
-      let response = newResponse
+    callbacks: {
+      onResponse({ response: newResponse }) {
+        let response = newResponse
 
-      if (response.choices[0].message.role) {
-        log('role', response.choices[0].message.role)
-      }
-      if (response.choices[0].message.reasoning_content) {
-        log('reasoning', response.choices[0].message.reasoning_content)
-      }
-      if (response.choices[0].message.content) {
-        log('content', response.choices[0].message.content)
-      }
-      if (response.choices[0].message.tool_calls) {
-        let index = -1
-        for (const toolCall of response.choices[0].message.tool_calls) {
-          index++
-          log(`tool_call:${index}`, toolCall)
+        if (response.choices[0].message.role) {
+          log('role', response.choices[0].message.role)
         }
-      }
-      if (response.choices[0].message.annotations) {
-        for (const annotation of response.choices[0].message.annotations) {
-          log('annotation', annotation)
+        if (response.choices[0].message.reasoning_content) {
+          log('reasoning', response.choices[0].message.reasoning_content)
         }
-      }
-      if (response.choices[0].message.audio) {
-        log('audio', response.choices[0].message.audio)
-      }
-      if (response.choices[0].message.refusal) {
-        log('refusal', response.choices[0].message.refusal)
-      }
-    },
-    onToolCallResult({
-      tool_call: toolCall,
-      tool_call_result: toolCallResult,
-    }) {
-      log('tool_call_result', toolCallResult)
+        if (response.choices[0].message.content) {
+          log('content', response.choices[0].message.content)
+        }
+        if (response.choices[0].message.tool_calls) {
+          let index = -1
+          for (const toolCall of response.choices[0].message.tool_calls) {
+            index++
+            log(`tool_call:${index}`, toolCall)
+          }
+        }
+        if (response.choices[0].message.annotations) {
+          for (const annotation of response.choices[0].message.annotations) {
+            log('annotation', annotation)
+          }
+        }
+        if (response.choices[0].message.audio) {
+          log('audio', response.choices[0].message.audio)
+        }
+        if (response.choices[0].message.refusal) {
+          log('refusal', response.choices[0].message.refusal)
+        }
+      },
+      onToolCallResult({
+        tool_call: toolCall,
+        tool_call_result: toolCallResult,
+      }) {
+        log('tool_call_result', toolCallResult)
+      },
     },
   })
 
@@ -124,6 +134,7 @@ async function streamAndCollect(args: {
   console.log('[start of stream]')
   let i = 0
   let last_mode = ''
+  let finish_reason
   let flush = noop
   for await (const chunk of stream) {
     i++
@@ -136,6 +147,7 @@ async function streamAndCollect(args: {
     }
 
     let choice = chunk.choices[0]
+    // console.log('choice:', choice)
     if (!choice) {
       flush()
       // console.log('[no choice]')
@@ -149,6 +161,7 @@ async function streamAndCollect(args: {
       }
       continue
     }
+    finish_reason = choice.finish_reason
 
     if (last_mode !== 'reasoning' && choice.delta.reasoning_content) {
       flush()
@@ -161,6 +174,7 @@ async function streamAndCollect(args: {
     }
     if (choice.delta.reasoning_content) {
       process.stdout.write(choice.delta.reasoning_content)
+      reasoning_content += choice.delta.reasoning_content
     }
 
     if (last_mode !== 'content' && choice.delta.content) {
@@ -174,6 +188,20 @@ async function streamAndCollect(args: {
     }
     if (choice.delta.content) {
       process.stdout.write(choice.delta.content)
+      response_content += choice.delta.content
+    }
+
+    if (last_mode !== 'refusal' && choice.delta.refusal) {
+      flush()
+      console.log('[refusal]')
+      flush = () => {
+        console.log('\n[/refusal]')
+        flush = noop
+      }
+      last_mode = 'refusal'
+    }
+    if (choice.delta.refusal) {
+      process.stdout.write(choice.delta.refusal)
     }
 
     if (last_mode !== 'tool_calls' && choice.delta.tool_calls) {
@@ -270,6 +298,7 @@ async function streamAndCollect(args: {
     response_content,
     cost,
     normalizedUsage,
+    finish_reason,
   }
 }
 
@@ -281,6 +310,96 @@ async function testStream() {
   // content = `what is the date and time? Result in this format: `
 
   let messages: ChatCompletionMessageParam[] = [{ role: 'user', content }]
+
+  mkdirSync('res/response', { recursive: true })
+
+  let result = await client.streamWithTools({
+    messages,
+    guardToolCall: alwaysAllow,
+    callbacks: {
+      onStreamStart({ new_responses }) {
+        console.log('[stream]')
+        mkdirSync(`res/response-${new_responses.length}`)
+      },
+      onChunk({ new_responses, chunk, chunk_index }) {
+        // console.log(`[chunk ${chunk_index}]`)
+        // console.log(JSON.stringify(chunk, null, 2))
+        // console.log(`[/chunk ${chunk_index}]`)
+        // writeFileSync(`chunks/chunk-${i}.json`, JSON.stringify(chunk, null, 2))
+        writeFileSync(
+          `res/response-${new_responses.length}/chunk-${chunk_index}.json`,
+          JSON.stringify(chunk, null, 2) + '\n',
+        )
+      },
+      onStreamEnd({ new_responses, response }) {
+        console.log('[/stream]')
+        writeFileSync(
+          `res/response/response-${new_responses.length}.json`,
+          JSON.stringify(response, null, 2) + '\n',
+        )
+      },
+
+      // Streaming Role
+      onRole({ role }) {
+        console.log(`[role]${role}[/role]`)
+      },
+
+      // Streaming Reasoning Content
+      onReasoningContentStart() {
+        console.log('[reasoning]')
+      },
+      onReasoningContentDelta({ reasoning_content_delta }) {
+        process.stdout.write(reasoning_content_delta)
+      },
+      onReasoningContentEnd() {
+        console.log('\n[/reasoning]')
+      },
+
+      // Streaming Content
+      onContentStart() {
+        console.log('[content]')
+      },
+      onContentDelta({ content_delta }) {
+        process.stdout.write(content_delta)
+      },
+      onContentEnd() {
+        console.log('\n[/content]')
+      },
+
+      // Streaming Refusal
+      onRefusalStart() {
+        console.log('[refusal]')
+      },
+      onRefusalDelta({ refusal_delta }) {
+        process.stdout.write(refusal_delta)
+      },
+      onRefusalEnd() {
+        console.log('\n[/refusal]')
+      },
+
+      // Streaming Tool Calls
+      onToolCallStart() {
+        console.log('[tool_calls]')
+      },
+      onToolCallDelta({ tool_call_delta }) {
+        // console.log('tool_call_delta:', tool_call_delta)
+      },
+      onToolCallEnd() {
+        console.log('\n[/tool_calls]')
+      },
+
+      onPartStart({ part }) {
+        // console.log(`[${part}]`) // using each parts's onStart already
+      },
+      onPartEnd({ part }) {
+        // console.log(`[/${part}]`) // using each parts's onEnd already
+      },
+      onFinish({ finish_reason }) {
+        console.log(`[finish_reason]${finish_reason}[/finish_reason]`)
+      },
+    },
+  })
+  return
 
   for (;;) {
     let response = await streamAndCollect({ client, messages })
