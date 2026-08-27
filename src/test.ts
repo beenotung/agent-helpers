@@ -390,8 +390,12 @@ async function testStream() {
       onToolCallDelta({ tool_call_delta }) {
         // console.log('tool_call_delta:', tool_call_delta)
       },
-      onToolCallEnd() {
+      onToolCallEnd({ tool_call }) {
         console.log('\n[/tool_calls]')
+        console.log('tool_call:', tool_call)
+      },
+      onToolCallResult({ tool_call_result }) {
+        console.log('tool_call_result:', tool_call_result)
       },
 
       onPartStart({ part }) {
