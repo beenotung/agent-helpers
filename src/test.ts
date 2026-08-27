@@ -9,7 +9,13 @@ import {
 } from './client'
 import { ToolCall } from './tool'
 import { env } from './env'
-import { mkdirSync, writeFileSync } from 'fs'
+import {
+  mkdirSync,
+  readdirSync,
+  rmdirSync,
+  unlinkSync,
+  writeFileSync,
+} from 'fs'
 
 let client = createClient({
   base_url: env.PROVIDER_URL,
@@ -439,7 +445,22 @@ async function testStream() {
   }
 }
 
+function cleanup() {
+  let filenames = readdirSync('res')
+  for (let filename of filenames) {
+    if (filename === 'response' || filename.startsWith('response-')) {
+      let dir = `res/${filename}`
+      let filenames = readdirSync(dir)
+      for (let filename of filenames) {
+        unlinkSync(`${dir}/${filename}`)
+      }
+      rmdirSync(dir)
+    }
+  }
+}
+
 async function main() {
+  cleanup()
   // await testComplete()
   await testStream()
 }
