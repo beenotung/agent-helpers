@@ -307,6 +307,35 @@ export function noop(): void {
   // no operation, as a placeholder for callback function
 }
 
+/**
+ * The known field names a provider may use for the reasoning trace. There is no
+ * standard, so both are checked; see `docs/reasoning-recall.md` for which
+ * providers use which.
+ */
+export type ReasoningField = 'reasoning_content' | 'reasoning'
+
+/**
+ * Read the reasoning trace from a response message, whichever field name the
+ * provider used. See {@link ReasoningField}.
+ */
+export function getReasoning(message: {
+  [key in ReasoningField]?: string | null
+}): string | null {
+  return message.reasoning_content || message.reasoning || null
+}
+
+/**
+ * Which field name the reasoning arrived under. A model reads back only the key
+ * it wrote itself, so this is what to echo when replaying the message.
+ */
+export function getReasoningField(message: {
+  [key in ReasoningField]?: string | null
+}): ReasoningField | null {
+  if (message.reasoning_content) return 'reasoning_content'
+  if (message.reasoning) return 'reasoning'
+  return null
+}
+
 export type CompleteWithToolsResult = {
   responses: CompletionResponse[]
   messages: CompletionMessage[]
@@ -349,6 +378,9 @@ export class Client {
 
   /** @description wait until entire response is generated */
   async complete(args: CompleteArgs): Promise<CompletionResponse> {
+    // The provider's response is returned as-is: the reasoning arrives under
+    // whichever field name that provider uses, and is left untouched so replaying
+    // the message echoes the same key back. Read it with `getReasoning(message)`.
     const response = await this.client.chat.completions.create(
       this.createCompletionArgs(args),
     )
@@ -591,7 +623,9 @@ export class Client {
         response.role = delta.role
       }
 
-      if (delta.reasoning_content) {
+      let reasoning_delta = getReasoning(delta)
+      if (reasoning_delta) {
+        response.reasoning_field ??= getReasoningField(delta)
         if (last_part !== 'reasoning') {
           await startPart(context, 'reasoning')
           if (onReasoningContentStart) {
@@ -602,10 +636,10 @@ export class Client {
           await onReasoningContentDelta({
             ...context,
             reasoning_content_acc: response.reasoning_content,
-            reasoning_content_delta: delta.reasoning_content,
+            reasoning_content_delta: reasoning_delta,
           })
         }
-        response.reasoning_content += delta.reasoning_content
+        response.reasoning_content += reasoning_delta
       }
 
       if (delta.content) {
@@ -977,7 +1011,10 @@ export class StreamResponse {
 
   // from delta in first choice
   role: ChatCompletionMessageParam['role'] | undefined = undefined
+  // normalized from either `reasoning_content` or `reasoning`, see getReasoning
   reasoning_content: string = ''
+  // which provider key the reasoning arrived under, echoed back on replay
+  reasoning_field: ReasoningField | null = null
   // TODO consider content as Array<Text|Refusal> for partially masked content
   content: string = ''
   refusal: string = ''
@@ -1030,16 +1067,24 @@ export class StreamResponse {
     if (this.role !== 'assistant') {
       throw new Error('only assistant role is supported')
     }
-    return {
+    let reasoning = this.reasoning_content.trim() || null
+    // echo the provider's own key so the model reads it back on replay; do not
+    // rewrite it to a single canonical name (a model reads only the key it wrote)
+    let message: CompletionMessage = {
       role: this.role,
-      reasoning_content: this.reasoning_content.trim() || null,
       content: this.content.trim() || null,
       refusal: this.refusal.trim() || null,
       annotations: undefined, // not supported yet
       audio: undefined, // not supported yet
       function_call: undefined, // replaced by tool_calls
       tool_calls: this.tool_calls.length > 0 ? this.tool_calls : undefined,
-    } satisfies CompletionMessage
+    }
+    if (reasoning) {
+      message[this.reasoning_field ?? 'reasoning_content'] = reasoning
+    } else {
+      message.reasoning_content = null
+    }
+    return message satisfies CompletionMessage
   }
 }
 
@@ -1047,7 +1092,9 @@ export type CompletionResponse = ChatCompletion & {
   choices: Array<
     ChatCompletion['choices'][number] & {
       message: ChatCompletionMessageParam & {
-        reasoning_content: string | null
+        // some provider name it as `reasoning_content`, some as `reasoning`
+        reasoning_content?: string | null
+        reasoning?: string | null
       }
     }
   >
@@ -1061,7 +1108,9 @@ export type StreamChunk = ChatCompletionChunk & {
   choices: Array<
     ChatCompletionChunk['choices'][number] & {
       delta: ChatCompletionChunk['choices'][number]['delta'] & {
-        reasoning_content: string | null
+        // some provider name it as `reasoning_content`, some as `reasoning`
+        reasoning_content?: string | null
+        reasoning?: string | null
       }
     }
   >

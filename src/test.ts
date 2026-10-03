@@ -5,6 +5,7 @@ import {
   Client,
   CompletionResponse,
   createClient,
+  getReasoning,
   StreamChunk,
 } from './client'
 import { ToolCall } from './tool'
@@ -84,8 +85,9 @@ async function testComplete() {
         if (response.choices[0].message.role) {
           log('role', response.choices[0].message.role)
         }
-        if (response.choices[0].message.reasoning_content) {
-          log('reasoning', response.choices[0].message.reasoning_content)
+        let reasoning = getReasoning(response.choices[0].message)
+        if (reasoning) {
+          log('reasoning', reasoning)
         }
         if (response.choices[0].message.content) {
           log('content', response.choices[0].message.content)
