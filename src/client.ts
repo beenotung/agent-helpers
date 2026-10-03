@@ -431,8 +431,8 @@ export class Client {
       context: CompletionStreamChunkContext,
       part: CompletionStreamPart,
     ) {
-      if (last_part && onPartEnd) {
-        await onPartEnd({ ...context, part: last_part })
+      if (last_part) {
+        await endPart(context, last_part)
       }
       if (onPartStart) {
         await onPartStart({ ...context, part })
@@ -441,26 +441,33 @@ export class Client {
       last_part = part
     }
 
-    async function flushPart(context: CompletionStreamChunkContext) {
-      if (last_part === 'reasoning' && onReasoningContentEnd) {
+    /**
+     * End a part: first its typed callback (e.g. onContentEnd), then the generic
+     * onPartEnd, matching the event order in the type docs.
+     */
+    async function endPart(
+      context: CompletionStreamChunkContext,
+      part: CompletionStreamPart,
+    ) {
+      if (part === 'reasoning' && onReasoningContentEnd) {
         await onReasoningContentEnd({
           ...context,
           reasoning_content: response.reasoning_content,
         })
       }
-      if (last_part === 'content' && onContentEnd) {
+      if (part === 'content' && onContentEnd) {
         await onContentEnd({
           ...context,
           content: response.content,
         })
       }
-      if (last_part === 'refusal' && onRefusalEnd) {
+      if (part === 'refusal' && onRefusalEnd) {
         await onRefusalEnd({
           ...context,
           refusal: response.refusal,
         })
       }
-      if (last_part === 'tool_calls' && last_tool_call) {
+      if (part === 'tool_calls' && last_tool_call) {
         await endToolCall(context, last_tool_call)
         if (onToolCallsEnd) {
           await onToolCallsEnd({
@@ -469,6 +476,17 @@ export class Client {
           })
         }
         last_tool_call = undefined
+      }
+      if (onPartEnd) {
+        await onPartEnd({ ...context, part })
+      }
+    }
+
+    /** End the current part, if any. Clears it so it is not reported twice. */
+    async function flushPart(context: CompletionStreamChunkContext) {
+      if (last_part) {
+        await endPart(context, last_part)
+        last_part = undefined
       }
     }
 
@@ -761,8 +779,10 @@ export class Client {
       }
     }
 
-    if (onPartEnd && last_context && last_part) {
-      await onPartEnd({ ...last_context, part: last_part })
+    // close any part left open when the stream ended without a finish_reason
+    if (last_part && last_context) {
+      await endPart(last_context, last_part)
+      last_part = undefined
     }
 
     if (onStreamEnd) {
