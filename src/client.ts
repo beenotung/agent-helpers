@@ -926,7 +926,10 @@ export class Client {
 
       switch (choice.finish_reason) {
         case 'length':
-          throw new Error('response too long')
+          throw new ResponseTooLongError(
+            create_args.max_completion_tokens ?? undefined,
+            new_response.usage,
+          )
         case 'content_filter':
           throw new Error('response blocked/filtered by provider')
         case 'stop':
@@ -1006,6 +1009,22 @@ export class Client {
         return result.toCompletionResponse()
       },
     })
+  }
+}
+
+export class ResponseTooLongError extends Error {
+  constructor(
+    public max_tokens: number | undefined,
+    public usage: ChatCompletion['usage'] | undefined,
+  ) {
+    let message = 'response too long'
+    if (max_tokens) {
+      message += ` (max ${max_tokens} tokens)`
+    }
+    if (usage?.completion_tokens) {
+      message += ` (used ${usage.completion_tokens} tokens)`
+    }
+    super(message)
   }
 }
 
