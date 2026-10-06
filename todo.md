@@ -4,6 +4,7 @@ overall plan
   - [x] basic loop until no more tool call is needed
   - [ ] support early terminate in the tool call loops
   - [ ] support count based guard
+  - [ ] include total usage in the loop result
 - [ ] context compaction
 - [ ] cast.ts integration
 - [ ] mc question answer loop
@@ -36,6 +37,12 @@ add count based helper tool call guard, not just alwaysAllow / alwaysReject
   - [ ] by total number of tool call
   - [ ] by total number of new messages
   - [ ] by context size (more complex, lower priority)
+
+---
+
+include total usage in the loop result
+
+- [ ] sum `usage` across every response in the loop, like the SDK runner's `totalUsage()`
 
 ---
 
