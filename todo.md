@@ -65,6 +65,9 @@ cast.ts integration
 - [ ] accept cast.ts parser when register function
 - [ ] use the inferred json schema in tool call definition
 - [ ] auto parse before calling the function, and pass validation error if any to LLM as tool call result
+- [ ] parse before `guardToolCall`, so the guard can inspect typed fields instead of the raw JSON string
+  - i.e. order is: parse -> guard -> call
+  - today the guard gets `tool_call.function.arguments` as a raw JSON string
 
 ---
 
