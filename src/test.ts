@@ -322,6 +322,7 @@ async function testStream() {
   mkdirSync('res/response', { recursive: true })
 
   let result = await client.streamWithTools({
+    // max_completion_tokens: 20,
     messages,
     guardToolCall: alwaysAllow,
     callbacks: {

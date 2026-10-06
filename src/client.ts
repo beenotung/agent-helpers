@@ -1002,6 +1002,7 @@ export class Client {
   ): Promise<CompleteWithToolsResult> {
     let { callbacks } = create_args
     return await this.loopWithTools({
+      stream_options: { include_usage: true },
       ...create_args,
       complete: async args => {
         let stream = await this.stream(args.complete_args)
