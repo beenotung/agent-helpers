@@ -40,6 +40,18 @@ export type CompleteWithToolsArgs = CompleteArgs &
 export type StreamWithToolsArgs = CompleteArgs &
   ToolCallGuard & { callbacks?: CompleteStreamLoopEventListeners }
 
+/**
+ * Decide whether a tool call may run.
+ *
+ * - return `true` to allow the call
+ * - return a reason string to reject it: the reason becomes the tool result, so
+ *   the model sees it and can try another tool or stop
+ * - throwing means an unrecoverable error (e.g. a database connection failure):
+ *   the run stops and the error is not caught, it propagates to the caller
+ *   (so it is never passed to the model)
+ *
+ * Note: `tool_call.function.arguments` is a raw JSON string, not a parsed object.
+ */
 export type ToolCallGuard = {
   guardToolCall: (
     args: ReceivedCompletionLoopContext & { tool_call: ToolCall },
@@ -828,7 +840,8 @@ export class Client {
 
   /**
    * @description guard and call the tool, also push the result to `context.newMessages`.
-   * - never throw error, return error message instead.
+   * Rejected calls get the rejection reason as their tool result, so the model can
+   * react to it; see {@link ToolCallGuard}.
    */
   private async callTool(
     args: ReceivedCompletionLoopContext & {
