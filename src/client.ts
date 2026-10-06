@@ -891,7 +891,7 @@ export class Client {
       new_messages,
     }
 
-    for (;;) {
+    for (let step = 1; ; step++) {
       let new_response = await complete({
         context: create_context,
         complete_args: {
@@ -926,6 +926,10 @@ export class Client {
 
       switch (choice.finish_reason) {
         case 'length':
+          if (step > 1) {
+            // TODO auto trigger compaction, then retry the step
+          }
+          // else likely the max_token is too low, e.g. the reasoning already used up all the tokens quota
           throw new ResponseTooLongError(
             create_args.max_completion_tokens ?? undefined,
             new_response.usage,
