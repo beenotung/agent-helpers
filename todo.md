@@ -88,3 +88,10 @@ terminate condition loop
   - [ ] json answer
   - [ ] tool call loop
   - [ ] custom termination condition
+
+---
+
+## done
+
+Fixes that need more explanation than the commit diff gives are written up in
+[tasks/done/](./tasks/done/).
