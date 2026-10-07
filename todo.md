@@ -5,6 +5,7 @@ overall plan
   - [ ] support early terminate in the tool call loops
   - [ ] support count based guard
   - [ ] include total usage in the loop result
+  - [ ] decide how to handle `finish_reason: 'length'`
 - [ ] context compaction
 - [ ] cast.ts integration
 - [ ] mc question answer loop
@@ -43,6 +44,20 @@ add count based helper tool call guard, not just alwaysAllow / alwaysReject
 include total usage in the loop result
 
 - [ ] sum `usage` across every response in the loop, like the SDK runner's `totalUsage()`
+
+---
+
+handle `finish_reason: 'length'`
+
+Throws `ResponseTooLongError`, and the caller decides whether to retry or compact.
+Two limits cause it, and the fix differs: the `max_tokens` output cap (retry with
+a larger budget) vs the context window (compact). A `length` on the first response
+can only be the output cap, since nothing has accumulated yet.
+
+- [ ] revisit after "context compaction" lands, when compacting becomes an option
+
+Related, but different: input exceeding the context, and `max_tokens` above the
+model's output limit, both fail with HTTP 400 before generation.
 
 ---
 
