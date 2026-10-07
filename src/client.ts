@@ -931,7 +931,9 @@ export class Client {
           }
           // else likely the max_token is too low, e.g. the reasoning already used up all the tokens quota
           throw new ResponseTooLongError(
-            create_args.max_completion_tokens ?? undefined,
+            create_args.max_completion_tokens ??
+              create_args.max_tokens ??
+              undefined,
             new_response.usage,
           )
         case 'content_filter':
