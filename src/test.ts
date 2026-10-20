@@ -10,6 +10,7 @@ import {
 } from './client'
 import { ToolCall } from './tool'
 import { env } from './env'
+import { int, object, optional, string } from 'cast.ts'
 import {
   mkdirSync,
   readdirSync,
@@ -38,6 +39,21 @@ client.addFunction({
   },
   callback: async (args: unknown) => {
     return new Date().toDateString()
+  },
+})
+
+// with a cast.ts parser, the JSON schema is derived from the parser, and the
+// arguments are parsed and validated before the callback runs
+client.addFunction({
+  name: 'get_user',
+  description: 'Get a user by id',
+  parser: object({
+    user_id: int(),
+    reason: optional(string()),
+  }),
+  callback: async (args) => {
+    // args.user_id is a number, args.reason is a string | undefined
+    return `user ${args.user_id}: ${args.reason ?? 'no reason given'}`
   },
 })
 

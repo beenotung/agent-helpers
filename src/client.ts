@@ -5,7 +5,15 @@ import {
   ChatCompletionCreateParamsBase,
   ChatCompletionMessageParam,
 } from 'openai/resources/chat/completions'
-import { AddFunctionArgs, ToolCall, ToolCallResult, ToolRegistry } from './tool'
+import {
+  AddFunctionArgs,
+  AddFunctionArgsWithParameters,
+  AddFunctionArgsWithParser,
+  ToolCall,
+  ToolCallResult,
+  ToolRegistry,
+} from './tool'
+import { Parser } from 'cast.ts'
 import { ChatCompletionToolMessageParam } from 'openai/resources'
 import { ChatCompletionMessage } from 'openai/resources'
 import { Stream } from 'openai/streaming'
@@ -50,11 +58,20 @@ export type StreamWithToolsArgs = CompleteArgs &
  *   the run stops and the error is not caught, it propagates to the caller
  *   (so it is never passed to the model)
  *
- * Note: `tool_call.function.arguments` is a raw JSON string, not a parsed object.
+ * Note: `tool_call.function.arguments` is a raw JSON string, not a parsed
+ * object. When the function was registered with a cast.ts parser, the parsed
+ * and validated value is available as `arguments`.
  */
 export type ToolCallGuard = {
   guardToolCall: (
-    args: ReceivedCompletionLoopContext & { tool_call: ToolCall },
+    args: ReceivedCompletionLoopContext & {
+      tool_call: ToolCall
+      /**
+       * the parsed and validated arguments, when the function was registered
+       * with a cast.ts parser; undefined otherwise
+       */
+      arguments?: unknown
+    },
   ) => Result<true | RejectReason>
 }
 
@@ -372,8 +389,14 @@ export class Client {
     this.tools = args.tools ?? new ToolRegistry()
   }
 
-  addFunction<T>(args: AddFunctionArgs<T>) {
-    this.tools.addFunction(args)
+  /** @description register a function with a cast.ts parser */
+  addFunction<P extends Parser<any>>(
+    args: AddFunctionArgsWithParser<P>,
+  ): void
+  /** @description register a function with a hand-written JSON schema */
+  addFunction<T = unknown>(args: AddFunctionArgsWithParameters<T>): void
+  addFunction(args: AddFunctionArgs<any>) {
+    this.tools.addFunction(args as any)
   }
 
   private createCompletionArgs(
@@ -839,9 +862,16 @@ export class Client {
   }
 
   /**
-   * @description guard and call the tool, also push the result to `context.newMessages`.
-   * Rejected calls get the rejection reason as their tool result, so the model can
-   * react to it; see {@link ToolCallGuard}.
+   * @description parse, guard and call the tool, also push the result to `context.newMessages`.
+   *
+   * The order is: parse -> guard -> call.
+   *
+   * - the arguments are parsed and validated with the cast.ts parser, when the
+   *   function was registered with one
+   * - a parse failure short-circuits: neither the guard nor the callback runs,
+   *   and the error becomes the tool result, so the model can correct itself
+   * - rejected calls get the rejection reason as their tool result, so the
+   *   model can react to it; see {@link ToolCallGuard}
    */
   private async callTool(
     args: ReceivedCompletionLoopContext & {
@@ -849,15 +879,29 @@ export class Client {
     } & ToolCallGuard,
   ): Promise<ChatCompletionToolMessageParam> {
     let { guardToolCall, ...rest } = args
-    let guardResult = await guardToolCall(rest)
+    let prepared = this.tools.prepareArgs(args.tool_call)
     let result: ChatCompletionToolMessageParam
-    if (guardResult === true) {
-      result = await this.tools.callTool(args.tool_call)
-    } else {
+    if (!prepared.ok) {
+      // the arguments are invalid: the model has to fix them
       result = {
         role: 'tool',
         tool_call_id: args.tool_call.id,
-        content: 'Error: tool call not allowed. Reason: ' + guardResult,
+        content: this.tools.invalidArgumentsContent(prepared.error),
+      }
+    } else {
+      let guardResult = await guardToolCall({
+        ...rest,
+        // only a parser-based function has typed arguments
+        ...(prepared.parsed ? { arguments: prepared.args } : {}),
+      })
+      if (guardResult === true) {
+        result = await this.tools.callTool(args.tool_call, prepared.args)
+      } else {
+        result = {
+          role: 'tool',
+          tool_call_id: args.tool_call.id,
+          content: 'Error: tool call not allowed. Reason: ' + guardResult,
+        }
       }
     }
     args.new_messages.push(result)
