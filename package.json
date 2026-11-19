@@ -16,9 +16,9 @@
     "dist"
   ],
   "scripts": {
-    "test": "tsc --noEmit",
+    "test": "tsc --noEmit && ts-node src/tool.spec.ts",
     "clean": "rimraf dist",
-    "build": "rimraf dist tsconfig.tsbuildinfo && tsc -p . && rimraf dist/tsconfig.tsbuildinfo dist/*.test.d.ts dist/*.test.js dist/*.spec.d.ts dist/*.spec.js",
+    "build": "rimraf dist tsconfig.tsbuildinfo && tsc -p . && rimraf dist/tsconfig.tsbuildinfo && rimraf -g \"dist/*.test.d.ts\" \"dist/*.test.js\" \"dist/*.spec.d.ts\" \"dist/*.spec.js\"",
     "tsc": "tsc -p .",
     "dev": "tsc -p . --watch"
   },
@@ -31,6 +31,7 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "cast.ts": "^1.21.0",
     "openai": "^6.49.0",
     "populate-env": "^2.6.1"
   }

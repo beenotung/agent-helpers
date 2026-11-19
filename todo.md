@@ -7,7 +7,7 @@ overall plan
   - [ ] include total usage in the loop result
   - [ ] decide how to handle `finish_reason: 'length'`
 - [ ] context compaction
-- [ ] cast.ts integration
+- [x] cast.ts integration
 - [ ] mc question answer loop
 - [ ] json answer loop (via tool call?)
 - [ ] free-text question answer loop
@@ -77,9 +77,12 @@ take reference on opencode codebase for compaction design
 
 cast.ts integration
 
-- [ ] accept cast.ts parser when register function
-- [ ] use the inferred json schema in tool call definition
-- [ ] auto parse before calling the function, and pass validation error if any to LLM as tool call result
+- [x] accept cast.ts parser when register function
+- [x] use the inferred json schema in tool call definition
+- [x] auto parse before calling the function, and pass validation error if any to LLM as tool call result
+- [x] parse before `guardToolCall`, so the guard can inspect typed fields instead of the raw JSON string
+  - i.e. order is: parse -> guard -> call
+  - today the guard gets `tool_call.function.arguments` as a raw JSON string
 - [ ] parse before `guardToolCall`, so the guard can inspect typed fields instead of the raw JSON string
   - i.e. order is: parse -> guard -> call
   - today the guard gets `tool_call.function.arguments` as a raw JSON string
